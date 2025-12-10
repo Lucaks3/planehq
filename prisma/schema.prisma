@@ -1,0 +1,108 @@
+// Prisma schema for Plane ↔ Asana sync tool
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Single workspace config
+model Config {
+  id                 String   @id @default("default")
+  planeWorkspaceSlug String
+  planeApiKey        String
+  asanaAccessToken   String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model ProjectMapping {
+  id String @id @default(cuid())
+
+  planeProjectId   String
+  planeProjectName String
+  asanaProjectGid  String
+  asanaProjectName String
+
+  // Configurable per project - the state that triggers "ready for customer"
+  triggerStateName String
+  syncEnabled      Boolean @default(true)
+
+  // Asana webhook ID for this project (set after webhook creation)
+  asanaWebhookGid String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taskMappings TaskMapping[]
+
+  @@unique([planeProjectId, asanaProjectGid])
+}
+
+model TaskMapping {
+  id               String         @id @default(cuid())
+  projectMappingId String
+  projectMapping   ProjectMapping @relation(fields: [projectMappingId], references: [id], onDelete: Cascade)
+
+  // Can have Plane task, Asana task, or both (for bidirectional sync)
+  planeIssueId   String?
+  planeIssueName String?
+  asanaTaskGid   String?
+  asanaTaskName  String?
+
+  matchConfidence Float? // 0-1 confidence score
+  matchMethod     String? // 'exact', 'fuzzy', 'manual'
+
+  // Status: UNMATCHED, MATCHED, PENDING_PLANE_SYNC, PENDING_ASANA_SYNC, SYNCED, ERROR
+  syncStatus    String    @default("UNMATCHED")
+  lastSyncedAt  DateTime?
+  lastSyncError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  syncHistory  SyncHistory[]
+  commentSyncs CommentSync[]
+
+  @@unique([planeIssueId])
+  @@unique([asanaTaskGid])
+}
+
+// Track which comments have been synced to avoid duplicates
+model CommentSync {
+  id            String      @id @default(cuid())
+  taskMappingId String
+  taskMapping   TaskMapping @relation(fields: [taskMappingId], references: [id], onDelete: Cascade)
+
+  sourceSystem    String // 'plane' or 'asana'
+  sourceCommentId String // Original comment ID
+  targetCommentId String? // Created comment ID in other system
+
+  createdAt DateTime @default(now())
+
+  @@unique([sourceSystem, sourceCommentId])
+}
+
+model SyncHistory {
+  id            String      @id @default(cuid())
+  taskMappingId String
+  taskMapping   TaskMapping @relation(fields: [taskMappingId], references: [id], onDelete: Cascade)
+
+  action    String // 'synced_to_asana', 'synced_to_plane', 'matched', 'comment_synced'
+  direction String? // 'plane_to_asana' or 'asana_to_plane'
+  details   String? // JSON string for extra info
+
+  createdAt DateTime @default(now())
+}
+
+// Track processed webhooks for idempotency
+model WebhookEvent {
+  id        String   @id @default(cuid())
+  eventId   String   @unique // For deduplication
+  source    String // 'plane' or 'asana'
+  processed Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
