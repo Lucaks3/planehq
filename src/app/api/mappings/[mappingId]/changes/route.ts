@@ -144,9 +144,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     const asanaChanges: Change[] = [];
     let missingCount = 0;
 
-    // First pass: identify tasks that have been modified since snapshot (for comment checking)
+    // First pass: identify tasks that need comment checking
+    // For Plane: we can rely on updated_at since it changes when comments are added
+    // For Asana: modified_at does NOT update when comments are added (comments are "stories")
+    // So we need to always check Asana comments for tasks that have a snapshot with comment count
     const modifiedPlaneIds = new Set<string>();
-    const modifiedAsanaIds = new Set<string>();
+    const asanaIdsToCheck = new Set<string>();
 
     for (const tm of taskMappings) {
       if (!tm.planeIssueId || !tm.asanaTaskGid) continue;
@@ -158,7 +161,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       if (!planeIssue || !asanaTask) continue;
 
       if (snapshot) {
-        // Check if Plane task was modified since snapshot
+        // Check if Plane task was modified since snapshot (includes comment changes)
         const planeModified = planeIssue.updated_at && snapshot.planeModifiedAt
           ? new Date(planeIssue.updated_at) > snapshot.planeModifiedAt
           : true;
@@ -166,18 +169,16 @@ export async function GET(req: Request, { params }: RouteParams) {
           modifiedPlaneIds.add(tm.planeIssueId);
         }
 
-        // Check if Asana task was modified since snapshot
-        const asanaModified = asanaTask.modified_at && snapshot.asanaModifiedAt
-          ? new Date(asanaTask.modified_at) > snapshot.asanaModifiedAt
-          : true;
-        if (asanaModified) {
-          modifiedAsanaIds.add(tm.asanaTaskGid);
+        // For Asana: always check comments since modified_at doesn't update for comments
+        // Only check if we have a baseline comment count to compare against
+        if (snapshot.asanaCommentsCount !== null) {
+          asanaIdsToCheck.add(tm.asanaTaskGid);
         }
       }
     }
 
-    // Fetch comments only for modified tasks
-    const commentCounts = modifiedPlaneIds.size > 0 || modifiedAsanaIds.size > 0
+    // Fetch comments for modified Plane tasks and ALL Asana tasks with snapshots
+    const commentCounts = modifiedPlaneIds.size > 0 || asanaIdsToCheck.size > 0
       ? await fetchCommentCountsBatched(
           planeClient,
           asanaClient,
@@ -186,7 +187,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             planeIssueId: tm.planeIssueId,
             asanaTaskGid: tm.asanaTaskGid,
           })),
-          { planeIds: modifiedPlaneIds, asanaIds: modifiedAsanaIds }
+          { planeIds: modifiedPlaneIds, asanaIds: asanaIdsToCheck }
         )
       : { plane: new Map<string, number>(), asana: new Map<string, number>() };
 
