@@ -3,11 +3,33 @@ import { prisma } from "@/lib/db";
 import { getPlaneClient } from "@/lib/plane-client";
 import { getAsanaClient } from "@/lib/asana-client";
 
+// Get month abbreviation from date string (YYYY-MM-DD), or "Q1" if no date set
+function getMonthAbbr(dateStr: string | undefined | null): string {
+  if (!dateStr) return "Q1";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return "Q1";
+  return months[date.getMonth()];
+}
+
+// Convert plain text to HTML, preserving line breaks
+function textToHtml(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  // Split by double newlines for paragraphs, single newlines become <br>
+  return text
+    .split(/\n\n+/)
+    .map(para => {
+      const withBr = para.replace(/\n/g, "<br>");
+      return `<p>${withBr}</p>`;
+    })
+    .join("");
+}
+
 // POST /api/sync - Execute sync for a task mapping
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { taskMappingId, direction } = body;
+    const { taskMappingId, direction, syncComments = false } = body;
 
     if (!taskMappingId) {
       return NextResponse.json(
@@ -33,9 +55,9 @@ export async function POST(req: Request) {
       (taskMapping.syncStatus === "PENDING_ASANA_SYNC" ? "plane_to_asana" : "asana_to_plane");
 
     if (syncDirection === "plane_to_asana") {
-      await syncPlaneToAsana(taskMapping);
+      await syncPlaneToAsana(taskMapping, syncComments);
     } else {
-      await syncAsanaToPlane(taskMapping);
+      await syncAsanaToPlane(taskMapping, syncComments);
     }
 
     // Update status
@@ -84,15 +106,18 @@ export async function POST(req: Request) {
   }
 }
 
-async function syncPlaneToAsana(taskMapping: {
-  id: string;
-  planeIssueId: string | null;
-  asanaTaskGid: string | null;
-  projectMapping: {
-    planeProjectId: string;
-    asanaProjectGid: string;
-  };
-}) {
+async function syncPlaneToAsana(
+  taskMapping: {
+    id: string;
+    planeIssueId: string | null;
+    asanaTaskGid: string | null;
+    projectMapping: {
+      planeProjectId: string;
+      asanaProjectGid: string;
+    };
+  },
+  syncComments: boolean = false
+) {
   if (!taskMapping.planeIssueId || !taskMapping.asanaTaskGid) {
     throw new Error("Task must be matched before syncing");
   }
@@ -100,33 +125,47 @@ async function syncPlaneToAsana(taskMapping: {
   const planeClient = getPlaneClient();
   const asanaClient = getAsanaClient();
 
-  // Fetch full Plane issue details
+  // Fetch full Plane issue details (with labels expanded)
   const planeIssue = await planeClient.getIssue(
     taskMapping.projectMapping.planeProjectId,
     taskMapping.planeIssueId
   );
 
-  // Update Asana task with Plane data
-  await asanaClient.updateTask(taskMapping.asanaTaskGid, {
-    name: planeIssue.name,
-    notes: planeIssue.description_html
-      ? stripHtml(planeIssue.description_html)
-      : undefined,
-  });
+  // Build task name with labels and month: [label1, label2] - Dec - Task Name
+  const labelPrefix = planeIssue.labels && planeIssue.labels.length > 0
+    ? `[${planeIssue.labels.map(l => l.name).join(", ")}]`
+    : null;
+  const monthPrefix = getMonthAbbr(planeIssue.target_date);
 
-  // Sync comments from Plane to Asana
-  await syncCommentsPlaneToAsana(taskMapping, planeClient, asanaClient);
+  // Combine prefixes: [Labels] - Dec - Task Name
+  const prefixes = [labelPrefix, monthPrefix].filter(Boolean).join(" - ");
+  const asanaTaskName = prefixes ? `${prefixes} - ${planeIssue.name}` : planeIssue.name;
+
+  // Update Asana task with name (including labels) and description
+  const updateData: { name: string; notes?: string } = { name: asanaTaskName };
+  if (planeIssue.description_html) {
+    updateData.notes = stripHtml(planeIssue.description_html);
+  }
+  await asanaClient.updateTask(taskMapping.asanaTaskGid, updateData);
+
+  // Only sync comments if explicitly enabled
+  if (syncComments) {
+    await syncCommentsPlaneToAsana(taskMapping, planeClient, asanaClient);
+  }
 }
 
-async function syncAsanaToPlane(taskMapping: {
-  id: string;
-  planeIssueId: string | null;
-  asanaTaskGid: string | null;
-  projectMapping: {
-    planeProjectId: string;
-    asanaProjectGid: string;
-  };
-}) {
+async function syncAsanaToPlane(
+  taskMapping: {
+    id: string;
+    planeIssueId: string | null;
+    asanaTaskGid: string | null;
+    projectMapping: {
+      planeProjectId: string;
+      asanaProjectGid: string;
+    };
+  },
+  syncComments: boolean = false
+) {
   if (!taskMapping.asanaTaskGid || !taskMapping.planeIssueId) {
     throw new Error("Task must be matched before syncing");
   }
@@ -137,20 +176,20 @@ async function syncAsanaToPlane(taskMapping: {
   // Fetch full Asana task details
   const asanaTask = await asanaClient.getTask(taskMapping.asanaTaskGid);
 
-  // Update Plane issue with Asana data
-  await planeClient.updateIssue(
-    taskMapping.projectMapping.planeProjectId,
-    taskMapping.planeIssueId,
-    {
-      name: asanaTask.name,
-      description_html: asanaTask.notes
-        ? `<p>${asanaTask.notes}</p>`
-        : undefined,
-    }
-  );
+  // Update Plane issue with Asana description only (NOT name)
+  const descriptionHtml = textToHtml(asanaTask.notes);
+  if (descriptionHtml) {
+    await planeClient.updateIssue(
+      taskMapping.projectMapping.planeProjectId,
+      taskMapping.planeIssueId,
+      { description_html: descriptionHtml }
+    );
+  }
 
-  // Sync comments from Asana to Plane
-  await syncCommentsAsanaToPlane(taskMapping, planeClient, asanaClient);
+  // Only sync comments if explicitly enabled
+  if (syncComments) {
+    await syncCommentsAsanaToPlane(taskMapping, planeClient, asanaClient);
+  }
 }
 
 async function syncCommentsPlaneToAsana(
@@ -237,13 +276,32 @@ async function syncCommentsAsanaToPlane(
   }
 }
 
-// Simple HTML stripper
+// HTML to plain text converter that preserves line breaks
 function stripHtml(html: string): string {
   return html
+    // Convert block elements to newlines
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/h[1-6]>/gi, "\n\n")
+    .replace(/<\/tr>/gi, "\n")
+    .replace(/<hr\s*\/?>/gi, "\n---\n")
+    // Handle list items with bullet points
+    .replace(/<li[^>]*>/gi, "• ")
+    // Remove all remaining HTML tags
     .replace(/<[^>]*>/g, "")
+    // Decode HTML entities
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    // Clean up excessive whitespace while preserving intentional line breaks
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n /g, "\n")
+    .replace(/ \n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

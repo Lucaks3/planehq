@@ -27,6 +27,9 @@ model ProjectMapping {
   asanaProjectGid  String
   asanaProjectName String
 
+  // Optional: filter Asana tasks to a specific section (group) within the project
+  asanaSectionName String?
+
   // Configurable per project - the state that triggers "ready for customer"
   triggerStateName String
   syncEnabled      Boolean @default(true)

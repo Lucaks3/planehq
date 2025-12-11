@@ -30,7 +30,13 @@ export async function GET() {
     try {
       const asanaClient = getAsanaClient();
       const workspaces = await asanaClient.listWorkspaces();
-      if (workspaces.length > 0) {
+      // Filter to only euronext.com workspace
+      const euronextWorkspace = workspaces.find(w => w.name.toLowerCase() === "euronext.com");
+      if (euronextWorkspace) {
+        asanaProjects = await asanaClient.listProjects(euronextWorkspace.gid);
+      } else if (workspaces.length > 0) {
+        // Fallback to first workspace if Euronext.com not found
+        console.warn("Euronext.com workspace not found, available:", workspaces.map(w => w.name));
         asanaProjects = await asanaClient.listProjects(workspaces[0].gid);
       }
     } catch (e) {
@@ -60,6 +66,7 @@ export async function POST(req: Request) {
       planeProjectName,
       asanaProjectGid,
       asanaProjectName,
+      asanaSectionName,
       triggerStateName,
     } = body;
 
@@ -76,6 +83,7 @@ export async function POST(req: Request) {
         planeProjectName: planeProjectName || planeProjectId,
         asanaProjectGid,
         asanaProjectName: asanaProjectName || asanaProjectGid,
+        asanaSectionName: asanaSectionName || null,
         triggerStateName,
       },
     });

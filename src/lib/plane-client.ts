@@ -19,16 +19,40 @@ export interface PlaneState {
   color: string;
 }
 
+export interface PlaneLabel {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface PlaneIssue {
   id: string;
   name: string;
   description_html?: string;
+  description_stripped?: string;
   state: string; // state ID
   state_detail?: PlaneState;
+  labels: PlaneLabel[]; // When expanded, these are full label objects
+  target_date?: string; // Deadline/due date in YYYY-MM-DD format
+  start_date?: string;
   project: string;
   sequence_id: number;
   created_at: string;
   updated_at: string;
+}
+
+// Strip HTML tags for plain text comparison
+function stripHtml(html: string | undefined): string {
+  if (!html) return "";
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export interface PlaneComment {
@@ -90,14 +114,18 @@ class PlaneClient {
   // Work Items (Issues)
   async listIssues(projectId: string): Promise<PlaneIssue[]> {
     const data = await this.request<{ results: PlaneIssue[] }>(
-      `/projects/${projectId}/work-items/`
+      `/projects/${projectId}/work-items/?expand=state`
     );
-    return data.results;
+    // Add stripped description for matching
+    return data.results.map(issue => ({
+      ...issue,
+      description_stripped: stripHtml(issue.description_html),
+    }));
   }
 
   async getIssue(projectId: string, issueId: string): Promise<PlaneIssue> {
     return this.request<PlaneIssue>(
-      `/projects/${projectId}/work-items/${issueId}/`
+      `/projects/${projectId}/work-items/${issueId}/?expand=labels`
     );
   }
 
@@ -110,6 +138,19 @@ class PlaneClient {
       `/projects/${projectId}/work-items/${issueId}/`,
       {
         method: "PATCH",
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  async createIssue(
+    projectId: string,
+    data: { name: string; description_html?: string; state?: string }
+  ): Promise<PlaneIssue> {
+    return this.request<PlaneIssue>(
+      `/projects/${projectId}/work-items/`,
+      {
+        method: "POST",
         body: JSON.stringify(data),
       }
     );

@@ -40,6 +40,11 @@ export interface AsanaStory {
   };
 }
 
+export interface AsanaSection {
+  gid: string;
+  name: string;
+}
+
 class AsanaClient {
   private accessToken: string;
 
@@ -89,11 +94,43 @@ class AsanaClient {
     );
   }
 
+  // Sections
+  async listSections(projectGid: string): Promise<AsanaSection[]> {
+    return this.request<AsanaSection[]>(
+      `/projects/${projectGid}/sections?opt_fields=gid,name`
+    );
+  }
+
+  async getSectionByName(projectGid: string, sectionName: string): Promise<AsanaSection | null> {
+    const sections = await this.listSections(projectGid);
+    return sections.find(s => s.name.toLowerCase() === sectionName.toLowerCase()) || null;
+  }
+
   // Tasks
   async listProjectTasks(projectGid: string): Promise<AsanaTask[]> {
     return this.request<AsanaTask[]>(
       `/projects/${projectGid}/tasks?opt_fields=gid,name,notes,html_notes,completed,completed_at,due_on,created_at,modified_at,memberships.project.gid,memberships.project.name`
     );
+  }
+
+  async listSectionTasks(sectionGid: string): Promise<AsanaTask[]> {
+    return this.request<AsanaTask[]>(
+      `/sections/${sectionGid}/tasks?opt_fields=gid,name,notes,html_notes,completed,completed_at,due_on,created_at,modified_at,memberships.project.gid,memberships.project.name`
+    );
+  }
+
+  // List tasks - optionally filtered by section name
+  async listTasks(projectGid: string, sectionName?: string): Promise<AsanaTask[]> {
+    if (sectionName) {
+      const section = await this.getSectionByName(projectGid, sectionName);
+      if (section) {
+        console.log(`Filtering Asana tasks to section: ${section.name} (${section.gid})`);
+        return this.listSectionTasks(section.gid);
+      } else {
+        console.warn(`Section "${sectionName}" not found in project, returning all tasks`);
+      }
+    }
+    return this.listProjectTasks(projectGid);
   }
 
   async getTask(taskGid: string): Promise<AsanaTask> {
@@ -114,16 +151,22 @@ class AsanaClient {
 
   async createTask(
     projectGid: string,
-    data: { name: string; notes?: string; html_notes?: string }
+    data: { name: string; notes?: string; html_notes?: string },
+    sectionGid?: string
   ): Promise<AsanaTask> {
+    const taskData: Record<string, unknown> = {
+      ...data,
+      projects: [projectGid],
+    };
+
+    // If a section is specified, add the membership
+    if (sectionGid) {
+      taskData.memberships = [{ project: projectGid, section: sectionGid }];
+    }
+
     return this.request<AsanaTask>("/tasks", {
       method: "POST",
-      body: JSON.stringify({
-        data: {
-          ...data,
-          projects: [projectGid],
-        },
-      }),
+      body: JSON.stringify({ data: taskData }),
     });
   }
 

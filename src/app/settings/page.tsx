@@ -9,6 +9,7 @@ interface ProjectMapping {
   planeProjectName: string;
   asanaProjectGid: string;
   asanaProjectName: string;
+  asanaSectionName: string | null;
   triggerStateName: string;
   syncEnabled: boolean;
   _count: { taskMappings: number };
@@ -27,6 +28,21 @@ interface AsanaProject {
 export default function Settings() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (mappingId: string) => {
+      const res = await fetch(`/api/projects/${mappingId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete mapping");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setDeletingId(null);
+    },
+  });
 
   // Fetch projects data
   const { data, isLoading } = useQuery<{
@@ -123,11 +139,20 @@ export default function Settings() {
                       {mapping.planeProjectName} → {mapping.asanaProjectName}
                     </p>
                     <p className="text-sm text-gray-500">
-                      Trigger: &quot;{mapping.triggerStateName}&quot; •{" "}
-                      {mapping._count.taskMappings} tasks mapped
+                      Trigger: &quot;{mapping.triggerStateName}&quot;
+                      {mapping.asanaSectionName && (
+                        <> • Section: &quot;{mapping.asanaSectionName}&quot;</>
+                      )}
+                      {" "}• {mapping._count.taskMappings} tasks mapped
                     </p>
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-3">
+                    <a
+                      href={`/tasks/${mapping.id}`}
+                      className="px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100"
+                    >
+                      View Tasks
+                    </a>
                     <span
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                         mapping.syncEnabled
@@ -137,6 +162,18 @@ export default function Settings() {
                     >
                       {mapping.syncEnabled ? "Active" : "Disabled"}
                     </span>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete mapping "${mapping.planeProjectName} → ${mapping.asanaProjectName}"? This will also remove all linked tasks.`)) {
+                          setDeletingId(mapping.id);
+                          deleteMutation.mutate(mapping.id);
+                        }
+                      }}
+                      disabled={deletingId === mapping.id}
+                      className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 disabled:opacity-50"
+                    >
+                      {deletingId === mapping.id ? "Deleting..." : "Delete"}
+                    </button>
                   </div>
                 </div>
               </li>
@@ -178,6 +215,7 @@ function AddMappingModal({
 }) {
   const [planeProjectId, setPlaneProjectId] = useState("");
   const [asanaProjectGid, setAsanaProjectGid] = useState("");
+  const [asanaSectionName, setAsanaSectionName] = useState("");
   const [triggerStateName, setTriggerStateName] = useState("Ready for Customer");
 
   const createMutation = useMutation({
@@ -193,6 +231,7 @@ function AddMappingModal({
           planeProjectName: planeProject?.name || planeProjectId,
           asanaProjectGid,
           asanaProjectName: asanaProject?.name || asanaProjectGid,
+          asanaSectionName: asanaSectionName || null,
           triggerStateName,
         }),
       });
@@ -254,6 +293,22 @@ function AddMappingModal({
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Asana Section Filter (Optional)
+            </label>
+            <input
+              type="text"
+              value={asanaSectionName}
+              onChange={(e) => setAsanaSectionName(e.target.value)}
+              placeholder="e.g., Content"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="mt-1 text-sm text-gray-500">
+              Only show tasks from this section/group in Asana
+            </p>
           </div>
 
           <div>
