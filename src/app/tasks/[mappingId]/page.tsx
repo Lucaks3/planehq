@@ -335,6 +335,14 @@ export default function TasksPage({ params }: { params: Promise<{ mappingId: str
           >
             {isResyncingAll ? "Resyncing..." : "Resync All Names"}
           </button>
+          {/* View Changes Button */}
+          <a
+            href={`/changes/${mappingId}`}
+            className="px-4 py-2 text-sm font-medium text-orange-700 bg-orange-100 rounded-md hover:bg-orange-200"
+            title="View changes since last snapshot"
+          >
+            View Changes
+          </a>
           <button
             onClick={() => { setShowSuggestions(!showSuggestions); if (!showSuggestions) refetchSuggestions(); }}
             className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
@@ -349,7 +357,7 @@ export default function TasksPage({ params }: { params: Promise<{ mappingId: str
             href="/settings"
             className="text-gray-600 hover:text-gray-900"
           >
-            ← Back to Settings
+            &larr; Back to Settings
           </a>
         </div>
       </div>

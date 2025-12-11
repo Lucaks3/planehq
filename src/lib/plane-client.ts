@@ -124,9 +124,13 @@ class PlaneClient {
   }
 
   async getIssue(projectId: string, issueId: string): Promise<PlaneIssue> {
-    return this.request<PlaneIssue>(
-      `/projects/${projectId}/work-items/${issueId}/?expand=labels`
+    const issue = await this.request<PlaneIssue>(
+      `/projects/${projectId}/work-items/${issueId}/?expand=labels,state`
     );
+    return {
+      ...issue,
+      description_stripped: stripHtml(issue.description_html),
+    };
   }
 
   async updateIssue(

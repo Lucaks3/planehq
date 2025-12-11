@@ -69,6 +69,7 @@ model TaskMapping {
 
   syncHistory  SyncHistory[]
   commentSyncs CommentSync[]
+  snapshot     TaskSnapshot?
 
   @@unique([planeIssueId])
   @@unique([asanaTaskGid])
@@ -108,4 +109,29 @@ model WebhookEvent {
   source    String // 'plane' or 'asana'
   processed Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+// Store task snapshots to detect changes
+model TaskSnapshot {
+  id            String      @id @default(cuid())
+  taskMappingId String
+  taskMapping   TaskMapping @relation(fields: [taskMappingId], references: [id], onDelete: Cascade)
+
+  // Plane task state at snapshot time
+  planeName        String?
+  planeDescription String?
+  planeState       String?
+  planeModifiedAt  DateTime?
+  planeCommentsCount Int @default(0)
+
+  // Asana task state at snapshot time
+  asanaName        String?
+  asanaDescription String?
+  asanaCompleted   Boolean?
+  asanaModifiedAt  DateTime?
+  asanaCommentsCount Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([taskMappingId]) // One snapshot per task mapping
 }
