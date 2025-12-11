@@ -163,8 +163,9 @@ export default function ChangesPage() {
                 onClick={() => snapshotMutation.mutate()}
                 disabled={snapshotMutation.isPending}
                 className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                title="Captures current state of all tasks including comment counts. May take 30-60 seconds."
               >
-                {snapshotMutation.isPending ? "..." : "Take Snapshot"}
+                {snapshotMutation.isPending ? "Taking snapshot... (this may take a minute)" : "Take Snapshot"}
               </button>
             </div>
           </div>
@@ -335,11 +336,11 @@ export default function ChangesPage() {
           <ul className="text-sm text-yellow-700 space-y-1">
             <li>
               1. Click &quot;Take Snapshot&quot; to save the current state of all
-              linked tasks
+              linked tasks (may take ~1 minute to fetch comment counts)
             </li>
             <li>
-              2. Make changes in Plane or Asana (edit descriptions, add comments,
-              etc.)
+              2. Make changes in Plane or Asana (edit titles, descriptions, states,
+              add comments, etc.)
             </li>
             <li>
               3. Click &quot;Refresh&quot; to see what changed since the snapshot
@@ -348,6 +349,9 @@ export default function ChangesPage() {
               4. Go to Tasks page to sync changes, then take a new snapshot
             </li>
           </ul>
+          <div className="mt-2 text-xs text-yellow-600">
+            Tracked fields: Title, Description, State (Plane), Completion (Asana), Comments
+          </div>
         </div>
       </div>
     </div>
