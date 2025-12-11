@@ -41,6 +41,7 @@ model ProjectMapping {
   updatedAt DateTime @updatedAt
 
   taskMappings TaskMapping[]
+  changeLogs   ChangeLog[]
 
   @@unique([planeProjectId, asanaProjectGid])
 }
@@ -70,6 +71,7 @@ model TaskMapping {
   syncHistory  SyncHistory[]
   commentSyncs CommentSync[]
   snapshot     TaskSnapshot?
+  changeLogs   ChangeLog[]
 
   @@unique([planeIssueId])
   @@unique([asanaTaskGid])
@@ -134,4 +136,33 @@ model TaskSnapshot {
   createdAt DateTime @default(now())
 
   @@unique([taskMappingId]) // One snapshot per task mapping
+}
+
+// Permanent log of all detected changes
+model ChangeLog {
+  id               String         @id @default(cuid())
+  projectMappingId String
+  projectMapping   ProjectMapping @relation(fields: [projectMappingId], references: [id], onDelete: Cascade)
+  taskMappingId    String?
+  taskMapping      TaskMapping?   @relation(fields: [taskMappingId], references: [id], onDelete: SetNull)
+
+  // Task identifiers (stored separately in case task mapping is deleted)
+  planeIssueId   String?
+  planeIssueName String?
+  asanaTaskGid   String?
+  asanaTaskName  String?
+
+  // Change details
+  source    String // 'plane' or 'asana'
+  field     String // 'name', 'description', 'state', 'completed', 'comments'
+  oldValue  String?
+  newValue  String?
+
+  // When the change was detected and when it occurred
+  detectedAt DateTime @default(now())
+  changedAt  DateTime?
+
+  @@index([projectMappingId])
+  @@index([taskMappingId])
+  @@index([detectedAt])
 }

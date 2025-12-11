@@ -9,7 +9,9 @@ interface RouteParams {
 
 interface Change {
   taskMappingId: string;
+  planeIssueId: string | null;
   planeIssueName: string | null;
+  asanaTaskGid: string | null;
   asanaTaskName: string | null;
   field: string;
   oldValue: string | null;
@@ -205,136 +207,192 @@ export async function GET(req: Request, { params }: RouteParams) {
 
       const snapshot = tm.snapshot;
 
+      // Helper to create change object with all fields
+      const createChange = (
+        field: string,
+        oldValue: string | null,
+        newValue: string | null,
+        source: "plane" | "asana",
+        changedAt: Date | null
+      ): Change => ({
+        taskMappingId: tm.id,
+        planeIssueId: tm.planeIssueId,
+        planeIssueName: planeIssue.name,
+        asanaTaskGid: tm.asanaTaskGid,
+        asanaTaskName: asanaTask.name,
+        field,
+        oldValue,
+        newValue,
+        source,
+        changedAt,
+      });
+
       if (snapshot) {
         // Check Plane changes
         if (snapshot.planeName !== planeIssue.name) {
-          planeChanges.push({
-            taskMappingId: tm.id,
-            planeIssueName: planeIssue.name,
-            asanaTaskName: asanaTask.name,
-            field: "name",
-            oldValue: snapshot.planeName,
-            newValue: planeIssue.name,
-            source: "plane",
-            changedAt: planeIssue.updated_at ? new Date(planeIssue.updated_at) : null,
-          });
+          planeChanges.push(createChange(
+            "name",
+            snapshot.planeName,
+            planeIssue.name,
+            "plane",
+            planeIssue.updated_at ? new Date(planeIssue.updated_at) : null
+          ));
         }
 
         // Description changed
         const currentPlaneDesc = planeIssue.description_stripped || "";
         const snapshotPlaneDesc = snapshot.planeDescription || "";
         if (snapshotPlaneDesc !== currentPlaneDesc) {
-          planeChanges.push({
-            taskMappingId: tm.id,
-            planeIssueName: planeIssue.name,
-            asanaTaskName: asanaTask.name,
-            field: "description",
-            oldValue: snapshotPlaneDesc.substring(0, 100) + (snapshotPlaneDesc.length > 100 ? "..." : ""),
-            newValue: currentPlaneDesc.substring(0, 100) + (currentPlaneDesc.length > 100 ? "..." : ""),
-            source: "plane",
-            changedAt: planeIssue.updated_at ? new Date(planeIssue.updated_at) : null,
-          });
+          planeChanges.push(createChange(
+            "description",
+            snapshotPlaneDesc.substring(0, 100) + (snapshotPlaneDesc.length > 100 ? "..." : ""),
+            currentPlaneDesc.substring(0, 100) + (currentPlaneDesc.length > 100 ? "..." : ""),
+            "plane",
+            planeIssue.updated_at ? new Date(planeIssue.updated_at) : null
+          ));
         }
 
         // State changed
         const currentState = planeIssue.state_detail?.name || null;
         if (snapshot.planeState !== currentState) {
-          planeChanges.push({
-            taskMappingId: tm.id,
-            planeIssueName: planeIssue.name,
-            asanaTaskName: asanaTask.name,
-            field: "state",
-            oldValue: snapshot.planeState,
-            newValue: currentState,
-            source: "plane",
-            changedAt: planeIssue.updated_at ? new Date(planeIssue.updated_at) : null,
-          });
+          planeChanges.push(createChange(
+            "state",
+            snapshot.planeState,
+            currentState,
+            "plane",
+            planeIssue.updated_at ? new Date(planeIssue.updated_at) : null
+          ));
         }
 
         // Plane comments changed
         const currentPlaneComments = commentCounts.plane.get(tm.planeIssueId);
         if (currentPlaneComments !== undefined && snapshot.planeCommentsCount !== currentPlaneComments) {
-          planeChanges.push({
-            taskMappingId: tm.id,
-            planeIssueName: planeIssue.name,
-            asanaTaskName: asanaTask.name,
-            field: "comments",
-            oldValue: `${snapshot.planeCommentsCount} comments`,
-            newValue: `${currentPlaneComments} comments`,
-            source: "plane",
-            changedAt: planeIssue.updated_at ? new Date(planeIssue.updated_at) : null,
-          });
+          planeChanges.push(createChange(
+            "comments",
+            `${snapshot.planeCommentsCount} comments`,
+            `${currentPlaneComments} comments`,
+            "plane",
+            planeIssue.updated_at ? new Date(planeIssue.updated_at) : null
+          ));
         }
 
         // Check Asana changes
         if (snapshot.asanaName !== asanaTask.name) {
-          asanaChanges.push({
-            taskMappingId: tm.id,
-            planeIssueName: planeIssue.name,
-            asanaTaskName: asanaTask.name,
-            field: "name",
-            oldValue: snapshot.asanaName,
-            newValue: asanaTask.name,
-            source: "asana",
-            changedAt: asanaTask.modified_at ? new Date(asanaTask.modified_at) : null,
-          });
+          asanaChanges.push(createChange(
+            "name",
+            snapshot.asanaName,
+            asanaTask.name,
+            "asana",
+            asanaTask.modified_at ? new Date(asanaTask.modified_at) : null
+          ));
         }
 
         // Description changed
         const currentAsanaDesc = asanaTask.notes || "";
         const snapshotAsanaDesc = snapshot.asanaDescription || "";
         if (snapshotAsanaDesc !== currentAsanaDesc) {
-          asanaChanges.push({
-            taskMappingId: tm.id,
-            planeIssueName: planeIssue.name,
-            asanaTaskName: asanaTask.name,
-            field: "description",
-            oldValue: snapshotAsanaDesc.substring(0, 100) + (snapshotAsanaDesc.length > 100 ? "..." : ""),
-            newValue: currentAsanaDesc.substring(0, 100) + (currentAsanaDesc.length > 100 ? "..." : ""),
-            source: "asana",
-            changedAt: asanaTask.modified_at ? new Date(asanaTask.modified_at) : null,
-          });
+          asanaChanges.push(createChange(
+            "description",
+            snapshotAsanaDesc.substring(0, 100) + (snapshotAsanaDesc.length > 100 ? "..." : ""),
+            currentAsanaDesc.substring(0, 100) + (currentAsanaDesc.length > 100 ? "..." : ""),
+            "asana",
+            asanaTask.modified_at ? new Date(asanaTask.modified_at) : null
+          ));
         }
 
         // Completion status changed
         if (snapshot.asanaCompleted !== asanaTask.completed) {
-          asanaChanges.push({
-            taskMappingId: tm.id,
-            planeIssueName: planeIssue.name,
-            asanaTaskName: asanaTask.name,
-            field: "completed",
-            oldValue: snapshot.asanaCompleted ? "Completed" : "Open",
-            newValue: asanaTask.completed ? "Completed" : "Open",
-            source: "asana",
-            changedAt: asanaTask.modified_at ? new Date(asanaTask.modified_at) : null,
-          });
+          asanaChanges.push(createChange(
+            "completed",
+            snapshot.asanaCompleted ? "Completed" : "Open",
+            asanaTask.completed ? "Completed" : "Open",
+            "asana",
+            asanaTask.modified_at ? new Date(asanaTask.modified_at) : null
+          ));
         }
 
         // Asana comments changed
         const currentAsanaComments = commentCounts.asana.get(tm.asanaTaskGid);
         if (currentAsanaComments !== undefined && snapshot.asanaCommentsCount !== currentAsanaComments) {
-          asanaChanges.push({
-            taskMappingId: tm.id,
-            planeIssueName: planeIssue.name,
-            asanaTaskName: asanaTask.name,
-            field: "comments",
-            oldValue: `${snapshot.asanaCommentsCount} comments`,
-            newValue: `${currentAsanaComments} comments`,
-            source: "asana",
-            changedAt: asanaTask.modified_at ? new Date(asanaTask.modified_at) : null,
-          });
+          asanaChanges.push(createChange(
+            "comments",
+            `${snapshot.asanaCommentsCount} comments`,
+            `${currentAsanaComments} comments`,
+            "asana",
+            asanaTask.modified_at ? new Date(asanaTask.modified_at) : null
+          ));
         }
       } else {
         // No snapshot yet - this is a new task, show as "new"
-        planeChanges.push({
-          taskMappingId: tm.id,
-          planeIssueName: planeIssue.name,
-          asanaTaskName: asanaTask.name,
-          field: "new",
-          oldValue: null,
-          newValue: "New linked task - click Take Snapshot to start tracking",
-          source: "plane",
-          changedAt: new Date(),
+        planeChanges.push(createChange(
+          "new",
+          null,
+          "New linked task - click Take Snapshot to start tracking",
+          "plane",
+          new Date()
+        ));
+      }
+    }
+
+    // Save all detected changes to the log (excluding "new" entries)
+    const allChanges = [...planeChanges, ...asanaChanges].filter(c => c.field !== "new");
+    if (allChanges.length > 0) {
+      await prisma.changeLog.createMany({
+        data: allChanges.map(change => ({
+          projectMappingId: mappingId,
+          taskMappingId: change.taskMappingId,
+          planeIssueId: change.planeIssueId,
+          planeIssueName: change.planeIssueName,
+          asanaTaskGid: change.asanaTaskGid,
+          asanaTaskName: change.asanaTaskName,
+          source: change.source,
+          field: change.field,
+          oldValue: change.oldValue,
+          newValue: change.newValue,
+          changedAt: change.changedAt,
+        })),
+      });
+
+      // Update snapshots for tasks that had changes so we don't log them again
+      const changedTaskIds = new Set(allChanges.map(c => c.taskMappingId));
+      for (const taskId of changedTaskIds) {
+        const tm = taskMappings.find(t => t.id === taskId);
+        if (!tm || !tm.planeIssueId || !tm.asanaTaskGid) continue;
+
+        const planeIssue = planeIssueMap.get(tm.planeIssueId);
+        const asanaTask = asanaTaskMap.get(tm.asanaTaskGid);
+        if (!planeIssue || !asanaTask) continue;
+
+        const planeCommentsCount = commentCounts.plane.get(tm.planeIssueId) ?? tm.snapshot?.planeCommentsCount ?? 0;
+        const asanaCommentsCount = commentCounts.asana.get(tm.asanaTaskGid) ?? tm.snapshot?.asanaCommentsCount ?? 0;
+
+        await prisma.taskSnapshot.upsert({
+          where: { taskMappingId: taskId },
+          create: {
+            taskMappingId: taskId,
+            planeName: planeIssue.name,
+            planeDescription: planeIssue.description_stripped || "",
+            planeState: planeIssue.state_detail?.name || null,
+            planeModifiedAt: planeIssue.updated_at ? new Date(planeIssue.updated_at) : null,
+            planeCommentsCount,
+            asanaName: asanaTask.name,
+            asanaDescription: asanaTask.notes || "",
+            asanaCompleted: asanaTask.completed,
+            asanaModifiedAt: asanaTask.modified_at ? new Date(asanaTask.modified_at) : null,
+            asanaCommentsCount,
+          },
+          update: {
+            planeName: planeIssue.name,
+            planeDescription: planeIssue.description_stripped || "",
+            planeState: planeIssue.state_detail?.name || null,
+            planeModifiedAt: planeIssue.updated_at ? new Date(planeIssue.updated_at) : null,
+            planeCommentsCount,
+            asanaName: asanaTask.name,
+            asanaDescription: asanaTask.notes || "",
+            asanaCompleted: asanaTask.completed,
+            asanaModifiedAt: asanaTask.modified_at ? new Date(asanaTask.modified_at) : null,
+            asanaCommentsCount,
+          },
         });
       }
     }
@@ -347,6 +405,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         asanaChanges: asanaChanges.length,
         totalLinked: taskMappings.length,
         missing: missingCount,
+        logged: allChanges.length,
       },
     });
   } catch (error) {
